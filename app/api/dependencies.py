@@ -19,7 +19,7 @@ async def get_redis():
     finally:
         await client.close()
 
-class MockUser:
+class AuthenticatedUser:
     def __init__(self, id: int, role: str):
         self.id = id
         self.role = role
@@ -38,7 +38,7 @@ async def get_current_user(
         role = payload.get("role")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return MockUser(id=int(user_id), role=role)
+        return AuthenticatedUser(id=int(user_id), role=role)
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 

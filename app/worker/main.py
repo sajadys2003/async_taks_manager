@@ -12,9 +12,15 @@ MAX_CONCURRENT_JOBS = 3
 MAX_RETRIES = 3
 
 async def publish_status(redis, job_id: int, user_id: int, status: JobStatus):
+    
     await redis.publish(f"job_updates:{job_id}", status.value)
+    
+    
     payload = json.dumps({"job_id": job_id, "status": status.value})
     await redis.publish(f"user_job_updates:{user_id}", payload)
+    
+    
+    await redis.publish("admin_job_updates", payload)
 
 async def process_job(message_body: bytes, db: AsyncSession, mq_channel, redis):
     data = json.loads(message_body)

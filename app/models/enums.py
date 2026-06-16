@@ -8,6 +8,6 @@ class JobStatus(str, enum.Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
-# class UserRole(str, enum.Enum):
-#     USER = "user"
-#     ADMIN = "admin"
+class UserRole(str, enum.Enum):
+    USER = "user"
+    ADMIN = "admin"

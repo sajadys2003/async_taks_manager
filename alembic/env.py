@@ -7,6 +7,7 @@ from alembic import context
 
 # Import your Base and models here so Alembic can read the tables
 from app.models.job import Base
+from app.models.user import User
 
 config = context.config
 if config.config_file_name is not None:

@@ -45,6 +45,7 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis)
 ):
+    
     cache_key = f"cache:jobs:user:{user.id}:first_page"
     
     if not cursor and not force_refresh:
@@ -52,7 +53,12 @@ async def list_jobs(
         if cached_data:
             return json.loads(cached_data)
 
-    query = select(Job).where(Job.user_id == user.id)
+    
+    if user.role == "admin":
+        query = select(Job)
+    else:
+        query = select(Job).where(Job.user_id == user.id)
+        
     if cursor:
         query = query.where(Job.id < cursor)
         
@@ -77,12 +83,18 @@ async def list_jobs(
 
     return response_data
 
-
 @router.get("/stream")
 async def stream_all_jobs_status(request: Request, user=Depends(get_current_user), redis: Redis = Depends(get_redis)):
+    
     async def event_generator():
         pubsub = redis.pubsub()
-        channel_name = f"user_job_updates:{user.id}"
+        
+        
+        if user.role == "admin":
+            channel_name = "admin_job_updates"
+        else:
+            channel_name = f"user_job_updates:{user.id}"
+            
         await pubsub.subscribe(channel_name)
         try:
             while True:
@@ -92,7 +104,6 @@ async def stream_all_jobs_status(request: Request, user=Depends(get_current_user
                 if message:
                     status_data = message["data"]
                     yield f"data: {status_data}\n\n"
-                await asyncio.sleep(0.5)
         finally:
             await pubsub.unsubscribe(channel_name)
             await pubsub.close()
@@ -103,7 +114,7 @@ async def stream_all_jobs_status(request: Request, user=Depends(get_current_user
 @router.get("/{id}", response_model=JobResponse)
 async def get_job(id: int, user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     job = await db.get(Job, id)
-    if not job or job.user_id != user.id:
+    if not job or (job.user_id != user.id and user.role != "admin"):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
@@ -111,7 +122,7 @@ async def get_job(id: int, user=Depends(get_current_user), db: AsyncSession = De
 @router.post("/{id}/cancel")
 async def cancel_job(id: int, user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     job = await db.get(Job, id)
-    if not job or job.user_id != user.id:
+    if not job or (job.user_id != user.id and user.role != "admin"):
         raise HTTPException(status_code=404, detail="Job not found")
         
     if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
@@ -126,9 +137,17 @@ async def cancel_job(id: int, user=Depends(get_current_user), db: AsyncSession =
 async def stream_single_job_status(
     id: int, 
     request: Request, 
-    user=Depends(get_current_user),
+    user=Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db), # Added DB session here!
     redis: Redis = Depends(get_redis)
-):    
+):
+    """Real-Time SSE updates for a single Job. Secured against IDOR."""
+    
+    # SECURITY CHECK: Fetch the job and verify ownership BEFORE opening the stream
+    job = await db.get(Job, id)
+    if not job or (job.user_id != user.id and user.role != "admin"):
+        raise HTTPException(status_code=404, detail="Job not found")
+
     async def event_generator():
         pubsub = redis.pubsub()
         channel_name = f"job_updates:{id}"
@@ -139,9 +158,8 @@ async def stream_single_job_status(
                     break
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message:
-                    status_data = message["data"].decode("utf-8")
+                    status_data = message["data"]
                     yield f"data: {status_data}\n\n"
-                await asyncio.sleep(0.5)
         finally:
             await pubsub.unsubscribe(channel_name)
             await pubsub.close()
