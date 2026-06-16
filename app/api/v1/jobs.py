@@ -25,6 +25,7 @@ async def create_job(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis)
 ):
+    """Creates a new job"""
     mq_conn = await get_mq_connection()
     mq_channel = await mq_conn.channel()
     
@@ -45,7 +46,7 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis)
 ):
-    
+    """List all of jobs based on authenticated user"""
     cache_key = f"cache:jobs:user:{user.id}:first_page"
     
     if not cursor and not force_refresh:
@@ -85,7 +86,9 @@ async def list_jobs(
 
 @router.get("/stream")
 async def stream_all_jobs_status(request: Request, user=Depends(get_current_user), redis: Redis = Depends(get_redis)):
-    
+    """Streams all job based on SSE and authenticated user
+    ** Open in new tab and pass the token as a query string
+    """
     async def event_generator():
         pubsub = redis.pubsub()
         
@@ -113,6 +116,7 @@ async def stream_all_jobs_status(request: Request, user=Depends(get_current_user
 
 @router.get("/{id}", response_model=JobResponse)
 async def get_job(id: int, user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Gets a specific job details by its id"""
     job = await db.get(Job, id)
     if not job or (job.user_id != user.id and user.role != "admin"):
         raise HTTPException(status_code=404, detail="Job not found")
@@ -121,6 +125,7 @@ async def get_job(id: int, user=Depends(get_current_user), db: AsyncSession = De
 
 @router.post("/{id}/cancel")
 async def cancel_job(id: int, user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Cancels a job based on its id"""
     job = await db.get(Job, id)
     if not job or (job.user_id != user.id and user.role != "admin"):
         raise HTTPException(status_code=404, detail="Job not found")
@@ -141,7 +146,9 @@ async def stream_single_job_status(
     db: AsyncSession = Depends(get_db), # Added DB session here!
     redis: Redis = Depends(get_redis)
 ):
-    """Real-Time SSE updates for a single Job. Secured against IDOR."""
+    """Streams a single job based on SSE and authenticated user
+    ** Open in new tab and pass the token as a query string
+    """
     
     # SECURITY CHECK: Fetch the job and verify ownership BEFORE opening the stream
     job = await db.get(Job, id)

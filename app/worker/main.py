@@ -13,20 +13,23 @@ MAX_RETRIES = 3
 
 async def publish_status(redis, job_id: int, user_id: int, status: JobStatus):
     
+    # for a single job
     await redis.publish(f"job_updates:{job_id}", status.value)
     
-    
+    # for a single user
     payload = json.dumps({"job_id": job_id, "status": status.value})
     await redis.publish(f"user_job_updates:{user_id}", payload)
     
-    
-    await redis.publish("admin_job_updates", payload)
+    # for admin
+    admin_payload = json.dumps({"job_id": job_id, "user_id":user_id, "status": status.value})
+    await redis.publish("admin_job_updates", admin_payload)
 
 async def process_job(message_body: bytes, db: AsyncSession, mq_channel, redis):
     data = json.loads(message_body)
     job_id = data['job_id']
     user_id = data['user_id']
     
+    #  for handling requests at the exact same time from a user
     await db.execute(text("SELECT pg_advisory_xact_lock(:uid)"), {"uid": user_id})
     job = await db.get(Job, job_id)
     
@@ -69,6 +72,8 @@ async def process_job(message_body: bytes, db: AsyncSession, mq_channel, redis):
             else:
                 await asyncio.sleep(2 ** attempt)
 
+    # find a queued job to set its status to PENDING
+    # it must get locked to prevent other workers to do the same thing  
     subq = (
         select(Job.id)
         .where(Job.user_id == user_id, Job.status == JobStatus.QUEUED)
@@ -97,11 +102,12 @@ async def process_job(message_body: bytes, db: AsyncSession, mq_channel, redis):
 
 async def handle_message(message, mq_channel, redis):
     try:
+        # to benefit from message ACKs
         async with message.process():
             async with async_session_maker() as db:
                 await process_job(message.body, db, mq_channel, redis)
     except Exception as e:
-        print(f"\n🔥 ERROR: {e}\n")
+        print(f"\n ERROR: {e}\n")
         traceback.print_exc()
 
 async def main():

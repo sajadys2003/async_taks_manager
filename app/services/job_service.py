@@ -42,6 +42,7 @@ class JobService:
         if idempotency_key:
             await self.redis.set(redis_key, json.dumps(job_dict), ex=86400)
         
+        # Cache Invalidation
         await self.redis.delete(f"cache:jobs:user:{user_id}:first_page")
         
         return job_dict
